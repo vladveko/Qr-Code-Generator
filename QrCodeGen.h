@@ -3,11 +3,26 @@
 #include "resource.h"
 #include <vector>
 
+class QrSegment {
+public:
+	QrSegment(int nChars, std::vector<bool> &&dt);
+
+	void GetData();
+	void GetNumChars();
+
+	int numChars;
+
+	/* The data bits of this segment. Accessed through getData(). */
+	std::vector<bool> data;
+
+	//static void EncodeText(const char* text);
+	static QrSegment makeAlphanumeric(const char* text);
+	static const char* ALPHANUMERIC_CHARSET;
+};
+
 class QrCode {
 
 private:
-
-	void EncodeText(std::string);
 
 public:
 	QrCode();
