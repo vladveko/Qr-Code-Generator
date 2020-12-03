@@ -3,14 +3,13 @@
 #include "resource.h"
 #include <vector>
 
-class Mode final {
+class Mode {
 private:
 	int modeCode;
 	int dfLen[3];
 
 public:
 	Mode(int mCode, int dfLen1, int dfLen2, int dfLen3);
-	~Mode();
 
 	int GetModeCode();
 	int GetDFLen(int version);
@@ -24,6 +23,7 @@ class QrSegment {
 public:
 	QrSegment(int nChars, std::vector<bool> &&dt);
 
+	Mode GetMode();
 	std::vector<bool> GetData();
 	int GetNumChars();
 	size_t GetTotalBits();
@@ -32,7 +32,7 @@ public:
 	static QrSegment convertAlphanumeric(const char* text);
 
 private:
-
+	Mode mode;
 	int numChars;
 
 	/* The data bits of this segment. Accessed through getData(). */
@@ -55,7 +55,8 @@ private:
 	int ecl;
 
 	static int CalcVersion(int ecl, int size);
-	static QrSegment AddModeAndSizeFields(QrSegment &seg, int encodingType, int version, int size);
+	static QrSegment AddIndicators(const std::vector<bool> data, Mode mode, int size,int ecl);
+	static std::vector<uint8_t> GetDataBytes(const std::vector<bool> data);
 	static QrCode EncodeSegments(QrSegment &seg, int ecl, int mask);
 };
 
@@ -66,8 +67,6 @@ class BitBuffer final : public std::vector<bool> {
 
 	// Creates an empty bit buffer (length 0).
 public: BitBuffer();
-
-
 
 		/*---- Method ----*/
 

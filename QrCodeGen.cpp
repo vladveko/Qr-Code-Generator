@@ -2,7 +2,7 @@
 
 #include <iostream>
 
-/*---Реализация класса Mode---*/
+/*-- Реализация класса Mode --*/
 
 Mode::Mode(int mCode, int dfLen1, int dfLen2, int dfLen3) {
 	modeCode = mCode;
@@ -21,16 +21,20 @@ int Mode::GetDFLen(int ver) {
 
 const Mode Mode::Numeric	  (0x1, 10, 12, 14);
 const Mode Mode::Alphanumeric (0x2, 9, 11, 13);
-const Mode Mode::Byte         (0x4, 8, 16, 16);
+const Mode Mode::Byte		  (0x4, 8, 16, 16);
 
-/*---Реализация класса QrSegment---*/
+/*-- Реализация класса QrSegment --*/
 
 const char* QrSegment::ALPHANUMERIC_CHARSET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:";
 
-QrSegment::QrSegment(int nChars, std::vector<bool> &&dt) :
-	numChars(nChars),
-	data(std::move(dt))
-{}
+QrSegment::QrSegment(int nChars, std::vector<bool>&& dt) {
+	numChars = nChars;
+	data = std::move(dt);
+}
+
+Mode QrSegment::GetMode() {
+	return mode;
+}
 
 std::vector<bool> QrSegment::GetData() {
 	return data;
@@ -127,19 +131,48 @@ int QrCode::CalcVersion(int ecl, int size) {
 	return version;
 }
 
-QrSegment QrCode::AddModeAndSizeFields(QrSegment &seg, Mode encodingType, int version, int size) {
+QrSegment QrCode::AddIndicators(const std::vector<bool> data, Mode mode, int size, int ecl) {
+	
+	// Вычисление подходящей версии при выбранном уровне коррекции (ECL) и
+	// размере кодируемой информации
+	size_t dataSize = data.size();
+	int version = CalcVersion(ecl, dataSize);
 
+	int mCode = mode.GetModeCode();
+	int dfLen = mode.GetDFLen(version);
+	
+	BitBuffer newBB;
+	// Добавление поля способа кодирования
+	newBB.appendBits(static_cast<uint32_t>(mCode), 4);
+	// Добавление поля кол-во данных
+	newBB.appendBits(static_cast<uint32_t>(size), dfLen);
+	// Добавление данных
+	newBB.insert(newBB.end(), data.begin(), data.end());
+
+	newBB.appendBits(0, (8 - newBB.size() % 8));
+
+	for (uint8_t padByte = 0xEC; newBB.size() < dataSize; padByte ^= 0xEC ^ 0x11)
+		newBB.appendBits(padByte, 8);
+
+	return QrSegment(size, std::move(newBB));
+}
+
+std::vector<uint8_t> QrCode::GetDataBytes(const std::vector<bool> data) {
+
+	std::vector<uint8_t> dataBytes(data.size() / 8);
+	for (size_t i = 0; i < data.size(); i++)
+		dataBytes[i >> 3] |= (data.at(i) ? 1 : 0) << (7 - (i & 7));
+
+	return dataBytes;
 }
 
 QrCode QrCode::EncodeSegments(QrSegment &seg, int ecl, int mask) {
 	/* Добавление служебной информации */
 
-	// Вычисление подходящей версии при выбранном уровне коррекции (ECL) и
-	// размере кодируемой информации
-	size_t dataSize = seg.GetTotalBits();
-	int version = CalcVersion(ecl, dataSize);
-
 	// Добавление полей: способ кодирования, кол-во данных
+	seg = AddIndicators(seg.GetData(), seg.GetMode(), seg.GetNumChars(), ecl);
+
+	std::vector<uint8_t> dataInBytes = GetDataBytes(seg.GetData());
 
 }
 
