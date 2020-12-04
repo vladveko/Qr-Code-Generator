@@ -3,6 +3,8 @@
 #include "resource.h"
 #include <vector>
 
+using namespace std;
+
 class Mode {
 private:
 	int modeCode;
@@ -10,6 +12,7 @@ private:
 
 public:
 	Mode(int mCode, int dfLen1, int dfLen2, int dfLen3);
+	Mode();
 
 	int GetModeCode();
 	int GetDFLen(int version);
@@ -21,7 +24,7 @@ public:
 
 class QrSegment {
 public:
-	QrSegment(int nChars, std::vector<bool> &&dt);
+	QrSegment(int nChars, vector<bool> &&dt, Mode mode);
 
 	Mode GetMode();
 	std::vector<bool> GetData();
@@ -36,7 +39,7 @@ private:
 	int numChars;
 
 	/* The data bits of this segment. Accessed through getData(). */
-	std::vector<bool> data;
+	vector<bool> data;
 
 	static const char* ALPHANUMERIC_CHARSET;
 };
@@ -48,6 +51,7 @@ public:
 
 	/* Основная функция, вызов которой генерирует QR-код */
 	static void Generate();
+	static vector<uint8_t> reedSolomonComputeDivisor(int degree);
 	
 
 private:
@@ -55,9 +59,24 @@ private:
 	int ecl;
 
 	static int CalcVersion(int ecl, int size);
-	static QrSegment AddIndicators(const std::vector<bool> data, Mode mode, int size,int ecl);
-	static std::vector<uint8_t> GetDataBytes(const std::vector<bool> data);
+
+	static int getCapacitySize(int ver, int ecl);
+	
+	static QrSegment AddIndicators(const vector<bool>& data, Mode mode, int size,int ecl);
+	
+	static vector<uint8_t> GetDataBytes(const vector<bool>& data);
+	
+	static vector<vector<uint8_t>> DivideToBlocks(const vector<uint8_t>& data, int ecl, int ver);
+	
+	static vector<vector<uint8_t>> CalcECBytes(const vector<vector<uint8_t>>& data, int ecl, int ver);
+
+	//static vector<uint8_t> reedSolomonComputeDivisor(int degree);
+	static uint8_t reedSolomonMultiply(uint8_t x, uint8_t y);
+
 	static QrCode EncodeSegments(QrSegment &seg, int ecl, int mask);
+
+	const static int8_t ECC_CODEWORDS_PER_BLOCK[4][41];
+	const static int8_t NUM_ERROR_CORRECTION_BLOCKS[4][41];
 };
 
 

@@ -2,7 +2,13 @@
 
 #include <iostream>
 
+using namespace std;
+
 /*-- Реализация класса Mode --*/
+
+Mode::Mode() {
+
+}
 
 Mode::Mode(int mCode, int dfLen1, int dfLen2, int dfLen3) {
 	modeCode = mCode;
@@ -27,9 +33,10 @@ const Mode Mode::Byte		  (0x4, 8, 16, 16);
 
 const char* QrSegment::ALPHANUMERIC_CHARSET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:";
 
-QrSegment::QrSegment(int nChars, std::vector<bool>&& dt) {
+QrSegment::QrSegment(int nChars, vector<bool>&& dt, Mode md) {
 	numChars = nChars;
 	data = std::move(dt);
+	mode = md;
 }
 
 Mode QrSegment::GetMode() {
@@ -76,7 +83,7 @@ QrSegment QrSegment::convertAlphanumeric(const char* text) {
 	if (accumCount > 0)  // 1 character remaining
 		bb.appendBits(static_cast<uint32_t>(accumData), 6);
 
-	return QrSegment(charCount, std::move(bb));
+	return QrSegment(charCount, std::move(bb), Mode::Alphanumeric);
 }
 
 /*---Реализация класса QrCode---*/
@@ -84,7 +91,7 @@ QrSegment QrSegment::convertAlphanumeric(const char* text) {
 #define MIN_VERSION 1
 #define MAX_VERSION 40
 
-int getCapacitySize(int ver, int ecl) {
+int QrCode::getCapacitySize(int ver, int ecl) {
 	if (ver < MIN_VERSION || ver > MAX_VERSION)
 		throw std::domain_error("Version number out of range");
 
@@ -131,7 +138,7 @@ int QrCode::CalcVersion(int ecl, int size) {
 	return version;
 }
 
-QrSegment QrCode::AddIndicators(const std::vector<bool> data, Mode mode, int size, int ecl) {
+QrSegment QrCode::AddIndicators(const std::vector<bool>& data, Mode mode, int size, int ecl) {
 	
 	// Вычисление подходящей версии при выбранном уровне коррекции (ECL) и
 	// размере кодируемой информации
@@ -154,10 +161,10 @@ QrSegment QrCode::AddIndicators(const std::vector<bool> data, Mode mode, int siz
 	for (uint8_t padByte = 0xEC; newBB.size() < dataSize; padByte ^= 0xEC ^ 0x11)
 		newBB.appendBits(padByte, 8);
 
-	return QrSegment(size, std::move(newBB));
+	return QrSegment(size, std::move(newBB), mode);
 }
 
-std::vector<uint8_t> QrCode::GetDataBytes(const std::vector<bool> data) {
+std::vector<uint8_t> QrCode::GetDataBytes(const std::vector<bool>& data) {
 
 	std::vector<uint8_t> dataBytes(data.size() / 8);
 	for (size_t i = 0; i < data.size(); i++)
@@ -166,14 +173,90 @@ std::vector<uint8_t> QrCode::GetDataBytes(const std::vector<bool> data) {
 	return dataBytes;
 }
 
-QrCode QrCode::EncodeSegments(QrSegment &seg, int ecl, int mask) {
-	/* Добавление служебной информации */
+std::vector<std::vector<uint8_t>> QrCode::DivideToBlocks(const std::vector<uint8_t>& data, int ecl, int ver) {
 
-	// Добавление полей: способ кодирования, кол-во данных
-	seg = AddIndicators(seg.GetData(), seg.GetMode(), seg.GetNumChars(), ecl);
+	int8_t nBlocks = NUM_ERROR_CORRECTION_BLOCKS[ecl][ver];
+	int dataSize = data.size();
+	int nBytesPerBlock = dataSize / nBlocks;
+	int nLongBlocks = dataSize % nBlocks;
+	
+	std::vector<std::vector<uint8_t>> blocks;
+	
+	for (int i = 0; i < (nBlocks - nLongBlocks); i++) {
+		std::vector<uint8_t> block;
+		for (int b = 0; b < nBytesPerBlock; b++) {
+			block.push_back(data.at(b));
+		}
+		blocks.push_back(block);
+	}
 
-	std::vector<uint8_t> dataInBytes = GetDataBytes(seg.GetData());
+	for (int i = 0; i < nLongBlocks; i++) {
+		std::vector<uint8_t> block;
+		for (int b = 0; b < (nBytesPerBlock + 1); b++) {
+			block.push_back(data.at(b));
+		}
+		blocks.push_back(block);
+	}
 
+	return blocks;
+}
+
+vector<vector<uint8_t>> QrCode::CalcECBytes(const vector<vector<uint8_t>>& data, int ecl, int ver) {
+
+	int nECBytesPerBlock = ECC_CODEWORDS_PER_BLOCK[ecl][ver];
+
+	vector<vector<uint8_t>> result;
+
+	vector<uint8_t> ECBytes(nECBytesPerBlock);
+
+	return result;
+}
+
+//QrCode QrCode::EncodeSegments(QrSegment &seg, int ecl, int mask) {
+//	/* Добавление служебной информации */
+//
+//	// Добавление полей: способ кодирования, кол-во данных
+//	seg = AddIndicators(seg.GetData(), seg.GetMode(), seg.GetNumChars(), ecl);
+//
+//	std::vector<uint8_t> dataInBytes = GetDataBytes(seg.GetData());
+//
+//
+//}
+
+vector<uint8_t> QrCode::reedSolomonComputeDivisor(int degree) {
+	if (degree < 1 || degree > 255)
+		throw std::domain_error("Degree out of range");
+	// Polynomial coefficients are stored from highest to lowest power, excluding the leading term which is always 1.
+	// For example the polynomial x^3 + 255x^2 + 8x + 93 is stored as the uint8 array {255, 8, 93}.
+	vector<uint8_t> result(static_cast<size_t>(degree));
+	result.at(result.size() - 1) = 1;  // Start off with the monomial x^0
+
+	// Compute the product polynomial (x - r^0) * (x - r^1) * (x - r^2) * ... * (x - r^{degree-1}),
+	// and drop the highest monomial term which is always 1x^degree.
+	// Note that r = 0x02, which is a generator element of this field GF(2^8/0x11D).
+	uint8_t root = 1;
+	for (int i = 0; i < degree; i++) {
+		// Multiply the current product by (x - r^i)
+		for (size_t j = 0; j < result.size(); j++) {
+			result.at(j) = reedSolomonMultiply(result.at(j), root);
+			if (j + 1 < result.size())
+				result.at(j) ^= result.at(j + 1);
+		}
+		root = reedSolomonMultiply(root, 0x02);
+	}
+	return result;
+}
+
+uint8_t QrCode::reedSolomonMultiply(uint8_t x, uint8_t y) {
+	// Russian peasant multiplication
+	int z = 0;
+	for (int i = 7; i >= 0; i--) {
+		z = (z << 1) ^ ((z >> 7) * 0x11D);
+		z ^= ((y >> i) & 1) * x;
+	}
+	if (z >> 8 != 0)
+		throw std::logic_error("Assertion error");
+	return static_cast<uint8_t>(z);
 }
 
 void QrCode::Generate() {
@@ -192,7 +275,7 @@ void BitBuffer::appendBits(std::uint32_t val, int len) {
 		this->push_back(((val >> i) & 1) != 0);
 }
 
-const int8_t ECC_CODEWORDS_PER_BLOCK[4][41] = {
+const int8_t QrCode::ECC_CODEWORDS_PER_BLOCK[4][41] = {
 	// Version: (note that index 0 is for padding, and is set to an illegal value)
 	//0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40    Error correction level
 	{-1,  7, 10, 15, 20, 26, 18, 20, 24, 30, 18, 20, 24, 26, 30, 22, 24, 28, 30, 28, 28, 28, 28, 30, 30, 26, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30},  // Low
@@ -201,7 +284,7 @@ const int8_t ECC_CODEWORDS_PER_BLOCK[4][41] = {
 	{-1, 17, 28, 22, 16, 22, 28, 26, 26, 24, 28, 24, 28, 22, 24, 24, 30, 28, 28, 26, 28, 30, 24, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30},  // High
 };
 
-const int8_t NUM_ERROR_CORRECTION_BLOCKS[4][41] = {
+const int8_t QrCode::NUM_ERROR_CORRECTION_BLOCKS[4][41] = {
 	// Version: (note that index 0 is for padding, and is set to an illegal value)
 	//0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40    Error correction level
 	{-1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 4,  4,  4,  4,  4,  6,  6,  6,  6,  7,  8,  8,  9,  9, 10, 12, 12, 12, 13, 14, 15, 16, 17, 18, 19, 19, 20, 21, 22, 24, 25},  // Low
