@@ -2,6 +2,7 @@
 
 #include "resource.h"
 #include <vector>
+#include <map>
 
 using namespace std;
 
@@ -51,8 +52,7 @@ public:
 
 	/* Основная функция, вызов которой генерирует QR-код */
 	static void Generate();
-	static vector<uint8_t> reedSolomonComputeDivisor(int degree);
-	
+
 
 private:
 	int version;
@@ -70,13 +70,13 @@ private:
 	
 	static vector<vector<uint8_t>> CalcECBytes(const vector<vector<uint8_t>>& data, int ecl, int ver);
 
-	//static vector<uint8_t> reedSolomonComputeDivisor(int degree);
-	static uint8_t reedSolomonMultiply(uint8_t x, uint8_t y);
-
 	static QrCode EncodeSegments(QrSegment &seg, int ecl, int mask);
 
 	const static int8_t ECC_CODEWORDS_PER_BLOCK[4][41];
 	const static int8_t NUM_ERROR_CORRECTION_BLOCKS[4][41];
+	const static map<int, vector<uint8_t>> RS_DIVISORS;
+	const static uint8_t GALOIS_FIELD[256];
+	const static uint8_t REVERSE_GALOIS_FIELD[256];
 };
 
 
