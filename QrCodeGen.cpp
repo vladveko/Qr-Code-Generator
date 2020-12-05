@@ -247,6 +247,32 @@ vector<vector<uint8_t>> QrCode::CalcECBytes(const vector<vector<uint8_t>>& data,
 	return result;
 }
 
+vector<uint8_t> QrCode::ConcatBlocks(const vector<vector<uint8_t>>& dataBlocks, int dataSize, const vector<vector<uint8_t>>& ECBlocks, int ECBlockSize) {
+
+	vector<uint8_t> result;
+	int blockSize = dataSize / dataBlocks.size();
+
+	// Объединение блоков данных
+	for (int i = 0; i < blockSize + 1; i++) {
+		for (vector<uint8_t> block : dataBlocks) {
+			if (i < block.size()) {
+				result.push_back(block.at(i));
+			}
+		}
+	}
+
+	//Объединение блоков коррекции
+	for (int i = 0; i < ECBlockSize; i++) {
+		for (vector<uint8_t> block : ECBlocks) {
+			if (i < block.size()) {
+				result.push_back(block.at(i));
+			}
+		}
+	}
+
+	return result;
+}
+
 //QrCode QrCode::EncodeSegments(QrSegment &seg, int ecl, int mask) {
 //	/* Добавление служебной информации */
 //
@@ -257,6 +283,40 @@ vector<vector<uint8_t>> QrCode::CalcECBytes(const vector<vector<uint8_t>>& data,
 //
 //
 //}
+
+void QrCode::DrawModules(const vector<uint8_t>& data) {
+	
+	int size = version * 4 + 17;
+	size_t sz = static_cast<size_t>(size);
+	modules = vector<vector<bool> >(sz, vector<bool>(sz));
+	isFunction = vector<vector<bool> >(sz, vector<bool>(sz));
+
+	
+}
+
+void QrCode::AddFinderPatterns(int size) {
+
+	DrawFinderPattern(0, 0);
+	DrawFinderPattern(0, size - 7);
+	DrawFinderPattern(size - 7, 0);
+}
+
+void QrCode::AddAlignmentPatterns() {
+
+}
+
+void QrCode::AddTimingPatterns() {
+
+}
+
+void QrCode::DrawFinderPattern(int x, int y) {
+	for (int i = 0; i < 7;i++) {
+		for (int j; i < 7;j++) {
+			modules.at(x+i).at(y+i) = FINDER_PATTERN[i][j];
+			isFunction.at(x+i).at(y+j) = true;
+		}
+	}
+}
 
 void QrCode::Generate() {
 
@@ -331,4 +391,23 @@ const uint8_t QrCode::REVERSE_GALOIS_FIELD[256] = { -1, 0, 1, 25, 2, 50, 26, 198
 											65, 162, 31, 45, 67, 216, 183, 123, 164, 118, 196, 23, 73, 236, 127, 12, 111, 246, 108, 161, 59, 82, 41, 157, 85,
 											170, 251, 96, 134, 177, 187, 204, 62, 90, 203, 89, 95, 176, 156, 169, 160, 81, 11, 245, 22, 235, 122, 117, 44, 215,
 											79, 174, 213, 233, 230, 231, 173, 232, 116, 214, 244, 234, 168, 80, 88, 175
+};
+
+const bool QrCode::FINDER_PATTERN[8][8] = {
+	{ 1, 1, 1, 1, 1, 1, 1, 0},
+	{ 1, 0, 0, 0, 0, 0, 1, 0},
+	{ 1, 0, 1, 1, 1, 0, 1, 0},
+	{ 1, 0, 1, 1, 1, 0, 1, 0},
+	{ 1, 0, 1, 1, 1, 0, 1, 0},
+	{ 1, 0, 0, 0, 0, 0, 1, 0},
+	{ 1, 1, 1, 1, 1, 1, 1, 0},
+	{ 0, 0, 0, 0, 0, 0, 0, 0}
+};
+
+const bool QrCode::ALIGNMENT_PATTERN[5][5] = {
+	{ 1, 1, 1, 1, 1},
+	{ 1, 0, 0, 0, 1},
+	{ 1, 0, 1, 0, 1},
+	{ 1, 0, 0, 0, 1},
+	{ 1, 1, 1, 1, 1},
 };

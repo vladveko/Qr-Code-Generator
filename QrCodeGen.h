@@ -57,6 +57,16 @@ public:
 private:
 	int version;
 	int ecl;
+	std::vector<std::vector<bool> > modules;
+	std::vector<std::vector<bool> > isFunction;
+
+	void DrawModules(const vector<uint8_t>& data);
+
+	void AddFinderPatterns(int size);
+	void AddAlignmentPatterns();
+	void AddTimingPatterns();
+
+	void DrawFinderPattern(int x, int y);
 
 	static int CalcVersion(int ecl, int size);
 
@@ -70,13 +80,19 @@ private:
 	
 	static vector<vector<uint8_t>> CalcECBytes(const vector<vector<uint8_t>>& data, int ecl, int ver);
 
+	static vector<uint8_t> ConcatBlocks(const vector<vector<uint8_t>>& data, int dataSize, const vector<vector<uint8_t>>& ECBlocks, int ECBlockSize);
+
 	static QrCode EncodeSegments(QrSegment &seg, int ecl, int mask);
 
 	const static int8_t ECC_CODEWORDS_PER_BLOCK[4][41];
 	const static int8_t NUM_ERROR_CORRECTION_BLOCKS[4][41];
+
 	const static map<int, vector<uint8_t>> RS_DIVISORS;
 	const static uint8_t GALOIS_FIELD[256];
 	const static uint8_t REVERSE_GALOIS_FIELD[256];
+
+	const static bool FINDER_PATTERN[8][8];
+	const static bool ALIGNMENT_PATTERN[5][5];
 };
 
 
