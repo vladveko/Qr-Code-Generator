@@ -3,6 +3,7 @@
 #include "resource.h"
 #include <vector>
 #include <map>
+#include <string>
 
 using namespace std;
 
@@ -47,31 +48,49 @@ private:
 
 class QrCode {
 public:
-	QrCode();
-	~QrCode();
+	QrCode(int ver, int ecl, int mask);
 
 	/* Основная функция, вызов которой генерирует QR-код */
-	static void Generate();
+	static QrCode Generate(const char* text, int ecl);
+	string toSvgString(int border) const;
 
 
 private:
 	int version;
+	
 	int ecl;
+	
+	int mask;
+	
+	int size;
+	
 	std::vector<std::vector<bool> > modules;
+	
 	std::vector<std::vector<bool> > isFunction;
+
+	bool module(int x, int y) const;
 
 	void DrawModules(const vector<uint8_t>& data);
 
-	void AddFinderPatterns(int size);
+	void AddFinderPatterns();
 	void AddAlignmentPatterns();
-	void AddTimingPatterns(int size);
+	void AddTimingPatterns();
 	void AddVersion();
+	void AddData(const vector<uint8_t>& data);
+
+	void AddMaskAndECL();
 
 	void DrawFinderPattern(int x, int y);
 
 	void DrawAlignmentPattern(int x, int y);
 
-	void DrawVersion(long bits);
+	void DrawVersion(long bits, int size);
+
+	void ApplyMask(int mask);
+
+	bool getModule(int x, int y) const;
+
+	
 
 	static bool getBit(long x, int i);
 
@@ -79,7 +98,7 @@ private:
 
 	static int getCapacitySize(int ver, int ecl);
 	
-	static QrSegment AddIndicators(const vector<bool>& data, Mode mode, int size,int ecl);
+	static QrSegment AddIndicators(const vector<bool>& data, Mode mode, int size,int ecl, int version);
 	
 	static vector<uint8_t> GetDataBytes(const vector<bool>& data);
 	
@@ -89,7 +108,7 @@ private:
 
 	static vector<uint8_t> ConcatBlocks(const vector<vector<uint8_t>>& data, int dataSize, const vector<vector<uint8_t>>& ECBlocks, int ECBlockSize);
 
-	static QrCode EncodeSegments(QrSegment &seg, int ecl, int mask);
+	static QrCode EncodeSegments(QrSegment &seg, int ecl);
 
 	const static int8_t ECC_CODEWORDS_PER_BLOCK[4][41];
 	const static int8_t NUM_ERROR_CORRECTION_BLOCKS[4][41];
@@ -101,6 +120,7 @@ private:
 	const static vector<uint8_t> ALIGNMENT_TABLE[41];
 	const static bool FINDER_PATTERN[8][8];
 	const static bool ALIGNMENT_PATTERN[5][5];
+	const static long MASK_ECL_TABLE[4][8];
 };
 
 
