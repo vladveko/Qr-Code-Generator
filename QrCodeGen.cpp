@@ -303,19 +303,95 @@ void QrCode::AddFinderPatterns(int size) {
 
 void QrCode::AddAlignmentPatterns() {
 
+	if (version != 1)
+		return;
+
+	vector<uint8_t> coordinates = ALIGNMENT_TABLE[version];
+
+	for (uint8_t row : coordinates) {
+		for (uint8_t colunm : coordinates) {
+
+			if (!isFunction.at(row).at(colunm))
+				DrawAlignmentPattern(static_cast<int>(row), static_cast<int>(colunm));
+		}
+	}
+	
 }
 
-void QrCode::AddTimingPatterns() {
+void QrCode::AddTimingPatterns(int size) {
 
+	bool module = 1; //  изначально черный
+	for (int i = 8; i < size - 8; i++) {
+		
+		if (!isFunction.at(6).at(i)) {
+			modules.at(6).at(i) = module;
+			~module;
+		}
+	}
+}
+
+void QrCode::AddVersion() {
+
+	if (version < 7)
+		return;
+
+	int rem = version;  // версия - uint6, в диапазоне [7, 40]
+
+	for (int i = 0; i < 12; i++)
+		rem = (rem << 1) ^ ((rem >> 11) * 0x1F25);
+	
+	long bits = static_cast<long>(version) << 12 | rem;  // uint18
+	
+	if (bits >> 18 != 0)
+		throw std::logic_error("Assertion error");
+
+	DrawVersion(bits);
 }
 
 void QrCode::DrawFinderPattern(int x, int y) {
-	for (int i = 0; i < 7;i++) {
-		for (int j; i < 7;j++) {
-			modules.at(x+i).at(y+i) = FINDER_PATTERN[i][j];
-			isFunction.at(x+i).at(y+j) = true;
+
+	for (int i = 0; i < 8; i++) {
+		for (int j = 0; i < 8; j++) {
+			modules.at(x + i).at(y + i) = FINDER_PATTERN[i][j];
+			isFunction.at(x + i).at(y + j) = true;
 		}
 	}
+}
+
+void QrCode::DrawAlignmentPattern(int x, int y) {
+	
+	int lcx = x - 2;
+	int lcy = y - 2;
+
+	for (int i = 0; i < 5; i++) {
+		for (int j = 0; i < 5; j++) {
+			modules.at(lcy + i).at(lcy + j) = ALIGNMENT_PATTERN[i][j];
+			isFunction.at(lcy + i).at(lcy + j) = true;
+		}
+	}
+}
+
+void QrCode::DrawVersion(long bits) {
+
+	int size = version * 4 + 17;
+	int lcx = 0, lcy = size - 11;
+
+	for (int r = 0; r < 3; r++) {
+		for (int c = 0; c < 6; c++) {
+			bool bit = getBit(bits, r * c);
+
+			modules.at(lcx + r).at(lcy + c) = bit;
+			isFunction.at(lcx + r).at(lcy + c) = true;
+
+			// Так код версии зеркален
+			modules.at(lcy + r).at(lcx + c) = bit;
+			isFunction.at(lcy + r).at(lcx + c) = true;
+		}
+	}
+}
+
+bool QrCode::getBit(long x, int i) {
+	return ((x >> i) & 1) != 0;
 }
 
 void QrCode::Generate() {
@@ -393,6 +469,15 @@ const uint8_t QrCode::REVERSE_GALOIS_FIELD[256] = { -1, 0, 1, 25, 2, 50, 26, 198
 											79, 174, 213, 233, 230, 231, 173, 232, 116, 214, 244, 234, 168, 80, 88, 175
 };
 
+
+const vector<uint8_t> QrCode::ALIGNMENT_TABLE[41] = {
+	{}, {}, {18}, {22}, {26}, {30}, {34}, {6, 22, 38}, {6, 24, 42 }, {6, 26, 46}, {6, 28, 50}, {6, 30, 54}, {6, 32, 58}, {6, 34, 62}, {6, 26, 46, 66},{6, 26, 48, 70},
+	{6, 26, 50, 74}, {6, 30, 54, 78}, {6, 30, 56, 82}, {6, 30, 56, 82}, {6, 34, 62, 90}, {6, 28, 50, 72, 94}, {6, 26, 50, 74, 98}, {6, 30, 54, 78, 102}, {6, 28, 54, 80, 106},
+	{6, 32, 58, 84, 110}, {6, 30, 58, 86, 114}, {6, 34, 62, 90, 118}, {6, 26, 50, 74, 98, 122}, {6, 30, 54, 78, 102, 126}, {6, 26, 52, 78, 104, 130}, {6, 30, 56, 82, 108, 134},
+	{6, 34, 60, 86, 112, 138}, {6, 30, 58, 86, 114, 142}, {6, 34, 62, 90, 118, 146}, {6, 30, 54, 78, 102, 126, 150}, {6, 24, 50, 76, 102, 128, 154}, {6, 28, 54, 80, 106, 132, 158},
+	{6, 32, 58, 84, 110, 136, 162}, {6, 26, 54, 82, 110, 138, 166}, {6, 30, 58, 86, 114, 142, 170}
+};
+
 const bool QrCode::FINDER_PATTERN[8][8] = {
 	{ 1, 1, 1, 1, 1, 1, 1, 0},
 	{ 1, 0, 0, 0, 0, 0, 1, 0},
@@ -411,3 +496,4 @@ const bool QrCode::ALIGNMENT_PATTERN[5][5] = {
 	{ 1, 0, 0, 0, 1},
 	{ 1, 1, 1, 1, 1},
 };
+

@@ -64,9 +64,16 @@ private:
 
 	void AddFinderPatterns(int size);
 	void AddAlignmentPatterns();
-	void AddTimingPatterns();
+	void AddTimingPatterns(int size);
+	void AddVersion();
 
 	void DrawFinderPattern(int x, int y);
+
+	void DrawAlignmentPattern(int x, int y);
+
+	void DrawVersion(long bits);
+
+	static bool getBit(long x, int i);
 
 	static int CalcVersion(int ecl, int size);
 
@@ -91,6 +98,7 @@ private:
 	const static uint8_t GALOIS_FIELD[256];
 	const static uint8_t REVERSE_GALOIS_FIELD[256];
 
+	const static vector<uint8_t> ALIGNMENT_TABLE[41];
 	const static bool FINDER_PATTERN[8][8];
 	const static bool ALIGNMENT_PATTERN[5][5];
 };
