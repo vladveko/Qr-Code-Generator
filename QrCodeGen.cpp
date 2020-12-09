@@ -163,25 +163,12 @@ int QrCode::CalcVersion(int ecl, int size) {
 	int version, dataUsedBits = size;
 	bool found = false;
 
-	for (version = MIN_VERSION; !found; version++) {
+	for (version = MIN_VERSION; version != MAX_VERSION; version++) {
 		int dataCapacityBits = getCapacitySize(version, ecl) * 8;  // Number of data bits available
 		
 		if (dataUsedBits != -1 && dataUsedBits <= dataCapacityBits)
-			found = true;  // This version number is found to be suitable
-
-		//if (version >= MAX_VERSION) {  // All versions in the range could not fit the given data
-		//	std::ostringstream sb;
-		//	if (dataUsedBits == -1)
-		//		sb << "Segment too long";
-		//	else {
-		//		sb << "Data length = " << dataUsedBits << " bits, ";
-		//		sb << "Max capacity = " << dataCapacityBits << " bits";
-		//	}
-		//	throw data_too_long(sb.str());
-		//}
+			return version;  // This version number is found to be suitable
 	}
-
-	return version;
 }
 
 QrSegment QrCode::AddIndicators(const std::vector<bool>& data, Mode mode, int size, int ecl, int version) {
@@ -203,7 +190,8 @@ QrSegment QrCode::AddIndicators(const std::vector<bool>& data, Mode mode, int si
 
 	newBB.appendBits(0, (8 - newBB.size() % 8));
 
-	for (uint8_t padByte = 0xEC; newBB.size() < dataSize; padByte ^= 0xEC ^ 0x11)
+	int dataCapacitySize = getCapacitySize(version, ecl) * 8;
+	for (uint8_t padByte = 0xEC; newBB.size() < dataCapacitySize; padByte ^= 0xEC ^ 0x11)
 		newBB.appendBits(padByte, 8);
 
 	return QrSegment(size, std::move(newBB), mode);
@@ -255,12 +243,19 @@ vector<vector<uint8_t>> QrCode::CalcECBytes(const vector<vector<uint8_t>>& data,
 	vector<vector<uint8_t>> result;
 	int ecbAdded = 0;
 	for (vector<uint8_t> block : data) {
-		list<uint8_t> ECBytes(nECBytesPerBlock, 0);
+		
+		int dataBlockSize = block.size();
+		int currECBlockSize = nECBytesPerBlock;
+		if (dataBlockSize > nECBytesPerBlock) {
+			currECBlockSize = dataBlockSize;
+		}
+
+		list<uint8_t> ECBytes(currECBlockSize, 0);
 		copy(block.begin(), block.end(), ECBytes.begin());
 	
 		vector<uint8_t> RSDiv = it->second;
-		vector<uint8_t> buf(nECBytesPerBlock);
-		for (int i = 0; i < block.size();i++) {
+		vector<uint8_t> buf(currECBlockSize);
+		for (int i = 0; i < dataBlockSize; i++) {
 			uint8_t elem = ECBytes.front();
 			ECBytes.pop_front();
 			ECBytes.push_back(0);
@@ -268,7 +263,7 @@ vector<vector<uint8_t>> QrCode::CalcECBytes(const vector<vector<uint8_t>>& data,
 			if (elem != 0) {
 				uint8_t matchElem = REVERSE_GALOIS_FIELD[static_cast<int>(elem)];
 
-				for (int idx = 0; idx < buf.size(); idx++) {
+				for (int idx = 0; idx < nECBytesPerBlock; idx++) {
 					buf[idx] = (RSDiv[idx] + matchElem) % 255;
 					buf[idx] = GALOIS_FIELD[buf[idx]];
 				}
@@ -278,6 +273,9 @@ vector<vector<uint8_t>> QrCode::CalcECBytes(const vector<vector<uint8_t>>& data,
 				for (uint8_t byte : ECBytes) {
 					uint8_t newElem = buf[idx++] ^ byte;
 					temp.push_back(newElem);
+
+					if (idx > nECBytesPerBlock)
+						break;
 				}
 				copy(temp.begin(), temp.end(), ECBytes.begin());
 			}
@@ -285,6 +283,7 @@ vector<vector<uint8_t>> QrCode::CalcECBytes(const vector<vector<uint8_t>>& data,
 		}
 
 		copy(ECBytes.begin(), ECBytes.end(), buf.begin());
+		buf.resize(nECBytesPerBlock);
 		result.push_back(buf);
 	}
 	
@@ -322,8 +321,21 @@ QrCode QrCode::EncodeSegments(QrSegment &seg, int ecl) {
 	size_t dataSize = seg.GetData().size();
 	int ver = CalcVersion(ecl, dataSize);
 
-	// Добавление полей: способ кодирования, кол-во данных
-	seg = AddIndicators(seg.GetData(), seg.GetMode(), seg.GetNumChars(), ecl, ver);
+	bool correctVer = true;
+	do {
+		// Добавление полей: способ кодирования, кол-во данных
+		QrSegment tempSeg = AddIndicators(seg.GetData(), seg.GetMode(), seg.GetNumChars(), ecl, ver);
+
+		if (tempSeg.GetData().size() > getCapacitySize(ver, ecl) * 8) {
+			correctVer = false;
+			ver++;
+		}
+		else {
+			correctVer = true;
+			seg = tempSeg;
+		}
+
+	} while (!correctVer);
 
 	vector<uint8_t> dataInBytes = GetDataBytes(seg.GetData());
 
@@ -356,22 +368,29 @@ void QrCode::DrawModules(const vector<uint8_t>& data) {
 	AddAlignmentPatterns();
 	AddTimingPatterns();
 	AddVersion();
-	AddMaskAndECL();
+	AddMaskAndECL(mask);
 
 	AddData(data);
-	ApplyMask(0);
+	
+	mask = CalcBestMask();
+	ClearMaskAndECL();
+	
+	AddMaskAndECL(mask);
+	ApplyMask(mask);
 }
 
 void QrCode::AddFinderPatterns() {
 
 	DrawFinderPattern(0, 0);
-	DrawFinderPattern(0, size - 8);
-	DrawFinderPattern(size - 8, 0);
+	DrawFinderPattern(0, size - 7);
+	DrawFinderPattern(size - 7, 0);
+
+	DrawSeparators();
 }
 
 void QrCode::AddAlignmentPatterns() {
 
-	if (version != 1)
+	if (version == 1)
 		return;
 
 	vector<uint8_t> coordinates = ALIGNMENT_TABLE[version];
@@ -383,18 +402,28 @@ void QrCode::AddAlignmentPatterns() {
 				DrawAlignmentPattern(static_cast<int>(row), static_cast<int>(colunm));
 		}
 	}
-	
 }
 
 void QrCode::AddTimingPatterns() {
 
 	bool module = 1; //  изначально черный
-	for (int i = 8; i < size - 8; i++) {
+	for (int i = 8; i < size - 7; i++) {
 		
 		if (!isFunction.at(6).at(i)) {
 			modules.at(6).at(i) = module;
+			isFunction.at(6).at(i) = true;
 		}
-		~module;
+		module = !module;
+	}
+
+	module = 1;
+	for (int i = 8; i < size - 7; i++) {
+
+		if (!isFunction.at(i).at(6)) {
+			modules.at(i).at(6) = module;
+			isFunction.at(i).at(6) = true;
+		}
+		module = !module;
 	}
 }
 
@@ -416,24 +445,29 @@ void QrCode::AddVersion() {
 	DrawVersion(bits, size);
 }
 
-void QrCode::AddMaskAndECL() {
+void QrCode::AddMaskAndECL(int msk) {
 
-	long code = MASK_ECL_TABLE[ecl][mask];
+	long code = MASK_ECL_TABLE[ecl][msk];
 
-	int bitpos = 0;
+	int bitpos = 14;
 	for (int i = 0; i < 8; i++) {
-		modules.at(7).at(i) = getBit(code, bitpos++);
-		isFunction.at(7).at(i) = true;
+		if (!isFunction.at(8).at(i)) {
+			modules.at(8).at(i) = getBit(code, bitpos--);
+			isFunction.at(8).at(i) = true;
+		}
 	}
 
-	for (int i = 7; i > -1; i--) {
-		modules.at(i).at(6) = getBit(code, bitpos++);
-		isFunction.at(i).at(6) = true;
+	for (int i = 8; i > -1; i--) {
+		if (!isFunction.at(i).at(8)) {
+			modules.at(i).at(8) = getBit(code, bitpos--);
+			isFunction.at(i).at(8) = true;
+		}
 	}
 
-	for (int i = size - 1; i > size - 1 - 6; i--) {
-		modules.at(i).at(7) = getBit(code, bitpos++);
-		isFunction.at(i).at(7) = true;
+	bitpos = 14;
+	for (int i = size - 1; i > size - 1 - 7; i--) {
+		modules.at(i).at(8) = getBit(code, bitpos--);
+		isFunction.at(i).at(8) = true;
 	}
 
 	// Dark Module
@@ -441,8 +475,31 @@ void QrCode::AddMaskAndECL() {
 	isFunction.at(size - 8).at(8) = true;
 
 	for (int i = size - 8; i < size; i++) {
-		modules.at(7).at(i) = getBit(code, bitpos++);
-		isFunction.at(7).at(i) = true;
+		modules.at(8).at(i) = getBit(code, bitpos--);
+		isFunction.at(8).at(i) = true;
+	}
+}
+
+void QrCode::ClearMaskAndECL() {
+
+	for (int i = 0; i < 8; i++) {
+		if (i != 6) {
+			isFunction.at(8).at(i) = false;
+		}
+	}
+
+	for (int i = 8; i > -1; i--) {
+		if (i != 6) {
+			isFunction.at(i).at(8) = false;
+		}
+	}
+
+	for (int i = size - 1; i > size - 1 - 7; i--) {
+		isFunction.at(i).at(8) = false;
+	}
+
+	for (int i = size - 8; i < size; i++) {
+		isFunction.at(8).at(i) = false;
 	}
 }
 
@@ -475,11 +532,38 @@ void QrCode::AddData(const vector<uint8_t>& data) {
 
 void QrCode::DrawFinderPattern(int x, int y) {
 
-	for (int i = 0; i < 8; i++) {
-		for (int j = 0; j < 8; j++) {
+	for (int i = 0; i < 7; i++) {
+		for (int j = 0; j < 7; j++) {
 			modules.at(x + i).at(y + j) = FINDER_PATTERN[i][j];
 			isFunction.at(x + i).at(y + j) = true;
 		}
+	}
+}
+
+void QrCode::DrawSeparators() {
+	
+	// top left separator
+	for (int i = 0; i < 8; i++) {
+		isFunction.at(7).at(i) = true;
+	}
+	for (int i = 7; i >= 0; i--) {
+		isFunction.at(i).at(7) = true;
+	}
+
+	// top right separator
+	for (int i = size - 8; i < size; i++) {
+		isFunction.at(7).at(i) = true;
+	}
+	for (int i = 0; i < 8; i++) {
+		isFunction.at(i).at(size - 8) = true;
+	}
+
+	// bottom left separator
+	for (int i = 0; i < 8; i++) {
+		isFunction.at(size - 8).at(i) = true;
+	}
+	for (int i = size - 8; i < size; i++) {
+		isFunction.at(i).at(7) = true;
 	}
 }
 
@@ -512,6 +596,28 @@ void QrCode::DrawVersion(long bits, int size) {
 			isFunction.at(lcy + r).at(lcx + c) = true;
 		}
 	}
+}
+
+int QrCode::CalcBestMask() {
+	long minPenalty = LONG_MAX;
+	int msk = 0;
+
+	for (int i = 0; i < 8; i++) {
+		ClearMaskAndECL();
+
+		AddMaskAndECL(i);
+		ApplyMask(i);
+
+		long penalty = getPenaltyScore();
+		
+		if (penalty < minPenalty) {
+			msk = i;
+			minPenalty = penalty;
+		}
+		ApplyMask(i);
+	}
+
+	return msk;
 }
 
 void QrCode::ApplyMask(int msk) {
@@ -547,6 +653,110 @@ void QrCode::ApplyMask(int msk) {
 	}
 }
 
+long QrCode::getPenaltyScore() {
+	long result = 0;
+
+	// Adjacent modules in row having same color, and finder-like patterns
+	for (int y = 0; y < size; y++) {
+		bool runColor = false;
+		int runX = 0;
+		std::array<int, 7> runHistory = {};
+		for (int x = 0; x < size; x++) {
+			if (module(x, y) == runColor) {
+				runX++;
+				if (runX == 5)
+					result += PENALTY_N1;
+				else if (runX > 5)
+					result++;
+			}
+			else {
+				finderPenaltyAddHistory(runX, runHistory);
+				if (!runColor)
+					result += finderPenaltyCountPatterns(runHistory) * PENALTY_N3;
+				runColor = module(x, y);
+				runX = 1;
+			}
+		}
+		result += finderPenaltyTerminateAndCount(runColor, runX, runHistory) * PENALTY_N3;
+	}
+	// Adjacent modules in column having same color, and finder-like patterns
+	for (int x = 0; x < size; x++) {
+		bool runColor = false;
+		int runY = 0;
+		std::array<int, 7> runHistory = {};
+		for (int y = 0; y < size; y++) {
+			if (module(x, y) == runColor) {
+				runY++;
+				if (runY == 5)
+					result += PENALTY_N1;
+				else if (runY > 5)
+					result++;
+			}
+			else {
+				finderPenaltyAddHistory(runY, runHistory);
+				if (!runColor)
+					result += finderPenaltyCountPatterns(runHistory) * PENALTY_N3;
+				runColor = module(x, y);
+				runY = 1;
+			}
+		}
+		result += finderPenaltyTerminateAndCount(runColor, runY, runHistory) * PENALTY_N3;
+	}
+
+	// 2*2 blocks of modules having same color
+	for (int y = 0; y < size - 1; y++) {
+		for (int x = 0; x < size - 1; x++) {
+			bool  color = module(x, y);
+			if (color == module(x + 1, y) &&
+				color == module(x, y + 1) &&
+				color == module(x + 1, y + 1))
+				result += PENALTY_N2;
+		}
+	}
+
+	// Balance of black and white modules
+	int black = 0;
+	for (const vector<bool>& row : modules) {
+		for (bool color : row) {
+			if (color)
+				black++;
+		}
+	}
+	int total = size * size;  // Note that size is odd, so black/total != 1/2
+	// Compute the smallest integer k >= 0 such that (45-5k)% <= black/total <= (55+5k)%
+	int k = static_cast<int>((std::abs(black * 20L - total * 10L) + total - 1) / total) - 1;
+	result += k * PENALTY_N4;
+	return result;
+}
+
+int QrCode::finderPenaltyCountPatterns(const std::array<int, 7> & runHistory) {
+	int n = runHistory.at(1);
+	if (n > size * 3)
+		throw std::logic_error("Assertion error");
+	bool core = n > 0 && runHistory.at(2) == n && runHistory.at(3) == n * 3 && runHistory.at(4) == n && runHistory.at(5) == n;
+	return (core && runHistory.at(0) >= n * 4 && runHistory.at(6) >= n ? 1 : 0)
+		+ (core && runHistory.at(6) >= n * 4 && runHistory.at(0) >= n ? 1 : 0);
+}
+
+
+int QrCode::finderPenaltyTerminateAndCount(bool currentRunColor, int currentRunLength, std::array<int, 7> & runHistory) {
+	if (currentRunColor) {  // Terminate black run
+		finderPenaltyAddHistory(currentRunLength, runHistory);
+		currentRunLength = 0;
+	}
+	currentRunLength += size;  // Add white border to final run
+	finderPenaltyAddHistory(currentRunLength, runHistory);
+	return finderPenaltyCountPatterns(runHistory);
+}
+
+
+void QrCode::finderPenaltyAddHistory(int currentRunLength, std::array<int, 7> & runHistory) {
+	if (runHistory.at(0) == 0)
+		currentRunLength += size;  // Add white border to initial run
+	std::copy_backward(runHistory.cbegin(), runHistory.cend() - 1, runHistory.end());
+	runHistory.at(0) = currentRunLength;
+}
+
 bool QrCode::getBit(long x, int i) {
 	return ((x >> i) & 1) != 0;
 }
@@ -563,6 +773,11 @@ void BitBuffer::appendBits(std::uint32_t val, int len) {
 	for (int i = len - 1; i >= 0; i--)  // Append bit by bit
 		this->push_back(((val >> i) & 1) != 0);
 }
+
+const int QrCode::PENALTY_N1 = 3;
+const int QrCode::PENALTY_N2 = 3;
+const int QrCode::PENALTY_N3 = 40;
+const int QrCode::PENALTY_N4 = 10;
 
 const int8_t QrCode::ECC_CODEWORDS_PER_BLOCK[4][41] = {
 	// Version: (note that index 0 is for padding, and is set to an illegal value)
@@ -632,15 +847,14 @@ const vector<uint8_t> QrCode::ALIGNMENT_TABLE[41] = {
 	{6, 32, 58, 84, 110, 136, 162}, {6, 26, 54, 82, 110, 138, 166}, {6, 30, 58, 86, 114, 142, 170}
 };
 
-const bool QrCode::FINDER_PATTERN[8][8] = {
-	{ 1, 1, 1, 1, 1, 1, 1, 0},
-	{ 1, 0, 0, 0, 0, 0, 1, 0},
-	{ 1, 0, 1, 1, 1, 0, 1, 0},
-	{ 1, 0, 1, 1, 1, 0, 1, 0},
-	{ 1, 0, 1, 1, 1, 0, 1, 0},
-	{ 1, 0, 0, 0, 0, 0, 1, 0},
-	{ 1, 1, 1, 1, 1, 1, 1, 0},
-	{ 0, 0, 0, 0, 0, 0, 0, 0}
+const bool QrCode::FINDER_PATTERN[7][7] = {
+	{ 1, 1, 1, 1, 1, 1, 1},
+	{ 1, 0, 0, 0, 0, 0, 1},
+	{ 1, 0, 1, 1, 1, 0, 1},
+	{ 1, 0, 1, 1, 1, 0, 1},
+	{ 1, 0, 1, 1, 1, 0, 1},
+	{ 1, 0, 0, 0, 0, 0, 1},
+	{ 1, 1, 1, 1, 1, 1, 1},
 };
 
 const bool QrCode::ALIGNMENT_PATTERN[5][5] = {
