@@ -62,6 +62,7 @@ int QrSegment::GetNumChars() {
 }
 
 QrSegment QrSegment::convertAlphanumeric(const char* text) {
+
 	BitBuffer bb;
 	int accumData = 0;
 	int accumCount = 0;
@@ -69,8 +70,8 @@ QrSegment QrSegment::convertAlphanumeric(const char* text) {
 
 	for (; *text != '\0'; text++, charCount++) {
 		const char* temp = std::strchr(ALPHANUMERIC_CHARSET, *text);
-		if (temp == nullptr)
-			throw std::domain_error("String contains unencodable characters in alphanumeric mode");
+		if (temp == NULL)
+			throw -1;
 
 		accumData = accumData * 45 + static_cast<int>(temp - ALPHANUMERIC_CHARSET);
 		accumCount++;
@@ -98,6 +99,14 @@ QrCode::QrCode(int ver, int errorCL, int msk) {
 	ecl = errorCL;
 	mask = msk;
 	size = version * 4 + 17;
+}
+
+int QrCode::GetSize() {
+	return size;
+}
+
+vector<vector<bool>> QrCode::GetModules() {
+	return modules;
 }
 
 string QrCode::toSvgString(int border) const {

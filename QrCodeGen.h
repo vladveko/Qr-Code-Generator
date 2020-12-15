@@ -55,6 +55,8 @@ public:
 	static QrCode Generate(const char* text, int ecl);
 	string toSvgString(int border) const;
 
+	int GetSize();
+	vector<vector<bool>> GetModules();
 
 private:
 	int version;
